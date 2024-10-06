@@ -20,6 +20,7 @@ import {
 
 import * as packagejson from '../../package.json';
 import { SUPPORT_VIMRC } from 'platform/constants';
+import { Logger } from '../util/logger';
 
 // https://stackoverflow.com/questions/51465182/how-to-remove-index-signature-using-mapped-types/51956054#51956054
 type RemoveIndex<T> = {
@@ -115,12 +116,35 @@ class Configuration implements IConfiguration {
       ? Globals.mockConfiguration
       : this.getConfiguration('vim');
 
+    const vimConfigKeys = Object.entries(vimConfigs)
+      .filter(([_key, val]) => typeof val !== 'function')
+      .map(([key, _val]) => key)
+      .sort();
+
     // tslint:disable-next-line: forin
     for (const option in this) {
       let val = vimConfigs[option];
       if (val !== null && val !== undefined) {
         if (val.constructor.name === Object.name) {
-          val = Configuration.unproxify(val);
+          // dictionaries
+          const predefined = vimConfigKeys.flatMap((k) => {
+            if (k.startsWith(option + '__') && vimConfigs[k].constructor.name === Object.name) {
+              Logger.info(`Predefined config (dict) (${option}) ${k} loaded`);
+              return [Configuration.unproxify(vimConfigs[k])];
+            }
+            return [];
+          });
+          val = Object.assign({}, ...predefined, Configuration.unproxify(val));
+        } else if (Array.isArray(val)) {
+          // arrays
+          const predefined = vimConfigKeys.flatMap((k) => {
+            if (k.startsWith(option + '__') && Array.isArray(vimConfigs[k])) {
+              Logger.info(`Predefined config (array) (${option}) ${k} loaded`);
+              return [vimConfigs[k]];
+            }
+            return [];
+          });
+          val = [...predefined, val].flat();
         }
         this[option] = val;
       }
